@@ -1,0 +1,81 @@
+// ═══════════════════════════════════════════════════════════
+// CORTÉS+IA — Backend · /api/morosity
+// Obtiene datos frescos de morosidad desde Comunidad Feliz
+// vía Claude API + MCP. Llamado por el dashboard de CORTÉS+IA.
+// ═══════════════════════════════════════════════════════════
+
+export default async function handler(req, res) {
+  // CORS — permite que tu GitHub Pages llame a este endpoint
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'mcp-client-2025-04-04'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2000,
+        system: `Eres un asistente que consulta Comunidad Feliz y devuelve SOLO JSON válido.
+Sin texto adicional, sin markdown, sin backticks.
+Estructura exacta requerida:
+{
+  "total_deuda": number,
+  "num_morosos": number,
+  "updated_at": "ISO date string",
+  "morosos": [
+    {
+      "property_id": number,
+      "unit": string,
+      "nombre": string,
+      "monto": number,
+      "num_cargos": number
+    }
+  ]
+}`,
+        messages: [{
+          role: 'user',
+          content: `Llama a cf_community_morosity y devuelve los datos de morosidad en el formato JSON indicado. 
+En updated_at pon la fecha y hora actual en formato ISO 8601.`
+        }],
+        mcp_servers: [{
+          type: 'url',
+          url: 'https://app.comunidadfeliz.com/mcp',
+          name: 'comunidad-feliz'
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Claude API error ${response.status}: ${err}`);
+    }
+
+    const data = await response.json();
+
+    // Extraer el bloque de texto con el JSON
+    const textBlock = data.content?.find(b => b.type === 'text');
+    if (!textBlock?.text) throw new Error('Sin respuesta de texto de Claude');
+
+    const cfData = JSON.parse(textBlock.text.trim());
+
+    return res.status(200).json({
+      success: true,
+      data: cfData
+    });
+
+  } catch (err) {
+    console.error('[morosity] Error:', err.message);
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+}
