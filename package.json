@@ -1,0 +1,9 @@
+{
+  "name": "cortes-ia-backend",
+  "version": "1.0.0",
+  "description": "CORTÉS+IA — API Backend para sincronización con Comunidad Feliz",
+  "type": "module",
+  "engines": {
+    "node": "20.x"
+  }
+}
