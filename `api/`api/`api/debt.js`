@@ -1,0 +1,57 @@
+// ═══════════════════════════════════════════════════════════
+// CORTÉS+IA — Backend · /api/debt
+// Consulta el detalle de deuda de una unidad específica.
+// Llamado cuando el admin hace clic en un deudor.
+// ═══════════════════════════════════════════════════════════
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const { property_id } = req.query;
+  if (!property_id) return res.status(400).json({ error: 'property_id requerido' });
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'mcp-client-2025-04-04'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: `Devuelve SOLO JSON válido. Estructura:
+{
+  "total": number,
+  "num_cargos": number,
+  "ultimo_pago": { "monto": number, "fecha": string } | null,
+  "cargos": [{ "descripcion": string, "monto": number, "vence": string }]
+}`,
+        messages: [{
+          role: 'user',
+          content: `Llama a cf_check_property_debt con property_id=${property_id} y devuelve el resultado en el formato JSON indicado.`
+        }],
+        mcp_servers: [{
+          type: 'url',
+          url: 'https://app.comunidadfeliz.com/mcp',
+          name: 'comunidad-feliz'
+        }]
+      })
+    });
+
+    const data = await response.json();
+    const textBlock = data.content?.find(b => b.type === 'text');
+    if (!textBlock?.text) throw new Error('Sin respuesta');
+
+    const debtData = JSON.parse(textBlock.text.trim());
+    return res.status(200).json({ success: true, data: debtData });
+
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+}
