@@ -1,0 +1,72 @@
+// ═══════════════════════════════════════════════════════════
+// CORTÉS+IA — Backend · /api/notify
+// Envía estados de cuenta a los deudores seleccionados
+// vía Claude API + MCP de Comunidad Feliz.
+// ═══════════════════════════════════════════════════════════
+
+export default async function handler(req, res) {
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
+
+  const { property_ids } = req.body;
+
+  if (!property_ids?.length) {
+    return res.status(400).json({ success: false, error: 'property_ids requerido' });
+  }
+
+  try {
+    const idsStr = JSON.stringify(property_ids);
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'mcp-client-2025-04-04'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        system: `Eres un asistente que ejecuta notificaciones de cobranza en Comunidad Feliz.
+Devuelve SOLO JSON válido con esta estructura:
+{
+  "enviados": [number],
+  "fallidos": [number],
+  "total_enviados": number
+}`,
+        messages: [{
+          role: 'user',
+          content: `Llama a cf_notify_debtors con confirmed=true y property_ids=${idsStr}.
+Devuelve el resultado en el formato JSON indicado.`
+        }],
+        mcp_servers: [{
+          type: 'url',
+          url: 'https://app.comunidadfeliz.com/mcp',
+          name: 'comunidad-feliz'
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Claude API error ${response.status}: ${err}`);
+    }
+
+    const data = await response.json();
+    const textBlock = data.content?.find(b => b.type === 'text');
+    if (!textBlock?.text) throw new Error('Sin respuesta de Claude');
+
+    const result = JSON.parse(textBlock.text.trim());
+
+    return res.status(200).json({ success: true, result });
+
+  } catch (err) {
+    console.error('[notify] Error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+}
